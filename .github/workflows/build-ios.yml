@@ -82,9 +82,14 @@ jobs:
           set -e
           APP="$(find build-output -type d -name 'VYRAViewerIOS.app' | head -1)"
           rm -f VYRAViewerIOS-Appetize.zip
-          cd "$(dirname "$APP")"\n          /usr/bin/zip -qry "$GITHUB_WORKSPACE/VYRAViewerIOS-Appetize.zip" "$(basename "$APP")"
+          APP_DIR="$(dirname "$APP")"
+          APP_NAME="$(basename "$APP")"
+          (
+            cd "$APP_DIR"
+            /usr/bin/zip -qry "$GITHUB_WORKSPACE/VYRAViewerIOS-Appetize.zip" "$APP_NAME"
+          )
           echo "ZIP contents:"
-          unzip -l VYRAViewerIOS-Appetize.zip | head -40
+          unzip -l "$GITHUB_WORKSPACE/VYRAViewerIOS-Appetize.zip" | head -40
 
       - name: Upload Appetize build
         uses: actions/upload-artifact@v4
