@@ -75,7 +75,7 @@ jobs:
 
           echo "Architectures:"
           lipo -archs "$APP/$EXECUTABLE"
-          lipo -verify_arch arm64 x86_64 "$APP/$EXECUTABLE"
+          lipo "$APP/$EXECUTABLE" -verify_arch arm64 x86_64
 
       - name: Package Appetize-ready simulator app
         run: |
