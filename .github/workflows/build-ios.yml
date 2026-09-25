@@ -77,6 +77,44 @@ jobs:
           lipo -archs "$APP/$EXECUTABLE"
           lipo "$APP/$EXECUTABLE" -verify_arch arm64
 
+      - name: Launch on iPhone Simulator and capture screenshot
+        run: |
+          set -e
+          APP="$(find build-output -type d -name 'VYRAViewerIOS.app' | head -1)"
+          BUNDLE_ID=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$APP/Info.plist")
+
+          UDID=$(xcrun simctl list devices available -j | python3 -c '
+import json,sys
+d=json.load(sys.stdin)
+for runtime, devices in d["devices"].items():
+    for dev in devices:
+        if dev.get("isAvailable") and dev.get("name","").startswith("iPhone"):
+            print(dev["udid"])
+            raise SystemExit
+')
+          if [ -z "$UDID" ]; then
+            echo "No available iPhone simulator found"
+            xcrun simctl list devices available
+            exit 1
+          fi
+
+          echo "Using simulator: $UDID"
+          xcrun simctl boot "$UDID" || true
+          xcrun simctl bootstatus "$UDID" -b
+          xcrun simctl install "$UDID" "$APP"
+          xcrun simctl launch "$UDID" "$BUNDLE_ID"
+          sleep 8
+          xcrun simctl io "$UDID" screenshot "$GITHUB_WORKSPACE/VYRA-iPhone-Simulator.png"
+          echo "Simulator launch + screenshot succeeded."
+
+      - name: Upload iPhone simulator screenshot
+        uses: actions/upload-artifact@v4
+        with:
+          name: VYRA-iPhone-Simulator-Screenshot
+          path: VYRA-iPhone-Simulator.png
+          if-no-files-found: error
+          retention-days: 14
+
       - name: Package Appetize-ready simulator app
         run: |
           set -e
