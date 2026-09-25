@@ -38,6 +38,7 @@ jobs:
             -configuration Release \
             -sdk iphoneos \
             -destination 'generic/platform=iOS' \
+            PRODUCT_BUNDLE_IDENTIFIER="com.vyra.viewer.ios" \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY="" \
@@ -45,23 +46,44 @@ jobs:
             BUILD_DIR="$PWD/device-build" \
             clean build | tee xcodebuild-device.log
 
-      - name: Package unsigned IPA
+      - name: Verify bundle metadata
         run: |
           APP="$(find device-build -type d -name 'VYRAViewerIOS.app' | head -1)"
           if [ -z "$APP" ]; then
             echo "Built iPhone .app not found"
             exit 1
           fi
+          PLIST="$APP/Info.plist"
+          /usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier com.vyra.viewer.ios" "$PLIST"
+          /usr/libexec/PlistBuddy -c "Set :CFBundleName VYRAViewerIOS" "$PLIST"
+          /usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" "$PLIST"
+          /usr/libexec/PlistBuddy -c "Print :CFBundleExecutable" "$PLIST"
+          BUNDLE_ID="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$PLIST")"
+          EXECUTABLE="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$PLIST")"
+          if [ "$BUNDLE_ID" != "com.vyra.viewer.ios" ]; then
+            echo "Bundle ID verification failed: $BUNDLE_ID"
+            exit 1
+          fi
+          if [ ! -f "$APP/$EXECUTABLE" ]; then
+            echo "Executable missing: $EXECUTABLE"
+            exit 1
+          fi
+          echo "APP=$APP" >> "$GITHUB_ENV"
+
+      - name: Package sideload-ready unsigned IPA
+        run: |
           mkdir -p Payload
           cp -R "$APP" Payload/
-          /usr/bin/zip -qry VYRAViewerIOS-Unsigned.ipa Payload
-          ls -lh VYRAViewerIOS-Unsigned.ipa
+          /usr/bin/zip -qry VYRAViewerIOS-Sideload-Unsigned.ipa Payload
+          unzip -p VYRAViewerIOS-Sideload-Unsigned.ipa Payload/VYRAViewerIOS.app/Info.plist > packaged-Info.plist
+          /usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" packaged-Info.plist
+          ls -lh VYRAViewerIOS-Sideload-Unsigned.ipa
 
       - name: Upload unsigned IPA
         uses: actions/upload-artifact@v4
         with:
-          name: VYRAViewerIOS-Unsigned-IPA
-          path: VYRAViewerIOS-Unsigned.ipa
+          name: VYRAViewerIOS-Sideload-Unsigned-IPA
+          path: VYRAViewerIOS-Sideload-Unsigned.ipa
           if-no-files-found: error
 
       - name: Upload device build log
