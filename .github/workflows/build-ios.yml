@@ -1,0 +1,68 @@
+name: Build VYRA iOS
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ "main" ]
+
+jobs:
+  build:
+    runs-on: macos-15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Unpack iOS source
+        run: |
+          rm -rf build-src
+          mkdir build-src
+          unzip -q VYRA-Viewer-iPhone-iPad-Client-v1.zip -d build-src
+          find build-src -maxdepth 3 -type d -name "*.xcodeproj" -print
+
+      - name: Show Xcode version
+        run: xcodebuild -version
+
+      - name: Build iPhone Simulator app
+        run: |
+          set -o pipefail
+          PROJECT="$(find build-src -type d -name 'VYRAViewerIOS.xcodeproj' | head -1)"
+          if [ -z "$PROJECT" ]; then
+            echo "Xcode project not found"
+            exit 1
+          fi
+          xcodebuild \
+            -project "$PROJECT" \
+            -target VYRAViewerIOS \
+            -configuration Debug \
+            -sdk iphonesimulator \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            ONLY_ACTIVE_ARCH=NO \
+            BUILD_DIR="$PWD/build-output" \
+            clean build | tee xcodebuild.log
+
+      - name: Package simulator app
+        run: |
+          APP="$(find build-output -type d -name 'VYRAViewerIOS.app' | head -1)"
+          if [ -z "$APP" ]; then
+            echo "Built .app not found"
+            exit 1
+          fi
+          ditto -c -k --sequesterRsrc --keepParent "$APP" VYRAViewerIOS-Simulator.zip
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: VYRAViewerIOS-Simulator
+          path: VYRAViewerIOS-Simulator.zip
+          if-no-files-found: error
+
+      - name: Upload build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: xcodebuild-log
+          path: xcodebuild.log
+          if-no-files-found: ignore
