@@ -1,4 +1,4 @@
-name: Build VYRA iOS
+name: Build VYRA iOS Simulator (Appetize Ready)
 
 on:
   workflow_dispatch:
@@ -15,15 +15,17 @@ jobs:
 
       - name: Unpack iOS source
         run: |
-          rm -rf build-src
-          mkdir build-src
+          rm -rf build-src build-output
+          mkdir -p build-src
           unzip -q VYRA-Viewer-iPhone-iPad-Client-v1.zip -d build-src
-          find build-src -maxdepth 3 -type d -name "*.xcodeproj" -print
+          find build-src -maxdepth 4 -type d -name "*.xcodeproj" -print
 
       - name: Show Xcode version
-        run: xcodebuild -version
+        run: |
+          xcodebuild -version
+          uname -m
 
-      - name: Build iPhone Simulator app
+      - name: Build universal iOS Simulator app
         run: |
           set -o pipefail
           PROJECT="$(find build-src -type d -name 'VYRAViewerIOS.xcodeproj' | head -1)"
@@ -31,38 +33,71 @@ jobs:
             echo "Xcode project not found"
             exit 1
           fi
+
           xcodebuild \
             -project "$PROJECT" \
             -target VYRAViewerIOS \
-            -configuration Debug \
+            -configuration Release \
             -sdk iphonesimulator \
+            -destination 'generic/platform=iOS Simulator' \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY="" \
             ONLY_ACTIVE_ARCH=NO \
+            ARCHS="arm64 x86_64" \
+            EXCLUDED_ARCHS="" \
+            IPHONEOS_DEPLOYMENT_TARGET=17.0 \
             BUILD_DIR="$PWD/build-output" \
             clean build | tee xcodebuild.log
 
-      - name: Package simulator app
+      - name: Verify simulator bundle
         run: |
+          set -e
           APP="$(find build-output -type d -name 'VYRAViewerIOS.app' | head -1)"
           if [ -z "$APP" ]; then
             echo "Built .app not found"
             exit 1
           fi
-          ditto -c -k --sequesterRsrc --keepParent "$APP" VYRAViewerIOS-Simulator.zip
 
-      - name: Upload build artifact
+          PLIST="$APP/Info.plist"
+          EXECUTABLE=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$PLIST")
+          BUNDLE_ID=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$PLIST")
+          PLATFORM=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleSupportedPlatforms:0' "$PLIST")
+
+          echo "App: $APP"
+          echo "Bundle ID: $BUNDLE_ID"
+          echo "Executable: $EXECUTABLE"
+          echo "Platform: $PLATFORM"
+
+          test -n "$BUNDLE_ID"
+          test -f "$APP/$EXECUTABLE"
+          test "$PLATFORM" = "iPhoneSimulator"
+
+          echo "Architectures:"
+          lipo -archs "$APP/$EXECUTABLE"
+          lipo -verify_arch arm64 x86_64 "$APP/$EXECUTABLE"
+
+      - name: Package Appetize-ready simulator app
+        run: |
+          set -e
+          APP="$(find build-output -type d -name 'VYRAViewerIOS.app' | head -1)"
+          rm -f VYRAViewerIOS-Appetize.zip
+          ditto -c -k --sequesterRsrc --keepParent "$APP" VYRAViewerIOS-Appetize.zip
+          echo "ZIP contents:"
+          unzip -l VYRAViewerIOS-Appetize.zip | head -40
+
+      - name: Upload Appetize build
         uses: actions/upload-artifact@v4
         with:
-          name: VYRAViewerIOS-Simulator
-          path: VYRAViewerIOS-Simulator.zip
+          name: VYRAViewerIOS-Appetize
+          path: VYRAViewerIOS-Appetize.zip
           if-no-files-found: error
+          retention-days: 14
 
       - name: Upload build log
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: xcodebuild-log
+          name: xcodebuild-appetize-log
           path: xcodebuild.log
           if-no-files-found: ignore
