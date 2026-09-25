@@ -1,0 +1,73 @@
+name: Build VYRA Unsigned IPA
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ "main" ]
+
+jobs:
+  build-unsigned-ipa:
+    runs-on: macos-15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Unpack iOS source
+        run: |
+          rm -rf build-src
+          mkdir build-src
+          unzip -q VYRA-Viewer-iPhone-iPad-Client-v1.zip -d build-src
+          PROJECT="$(find build-src -type d -name 'VYRAViewerIOS.xcodeproj' | head -1)"
+          if [ -z "$PROJECT" ]; then
+            echo "Xcode project not found"
+            exit 1
+          fi
+          echo "PROJECT=$PROJECT" >> "$GITHUB_ENV"
+
+      - name: Show Xcode version
+        run: xcodebuild -version
+
+      - name: Build unsigned iPhone app
+        run: |
+          set -o pipefail
+          rm -rf device-build Payload
+          xcodebuild \
+            -project "$PROJECT" \
+            -target VYRAViewerIOS \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            ONLY_ACTIVE_ARCH=NO \
+            BUILD_DIR="$PWD/device-build" \
+            clean build | tee xcodebuild-device.log
+
+      - name: Package unsigned IPA
+        run: |
+          APP="$(find device-build -type d -name 'VYRAViewerIOS.app' | head -1)"
+          if [ -z "$APP" ]; then
+            echo "Built iPhone .app not found"
+            exit 1
+          fi
+          mkdir -p Payload
+          cp -R "$APP" Payload/
+          /usr/bin/zip -qry VYRAViewerIOS-Unsigned.ipa Payload
+          ls -lh VYRAViewerIOS-Unsigned.ipa
+
+      - name: Upload unsigned IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: VYRAViewerIOS-Unsigned-IPA
+          path: VYRAViewerIOS-Unsigned.ipa
+          if-no-files-found: error
+
+      - name: Upload device build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: xcodebuild-device-log
+          path: xcodebuild-device.log
+          if-no-files-found: ignore
